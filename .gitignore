@@ -1,0 +1,25 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Entorno local (secretos)
+.env
+.env.*
+!.env.example
+
+# SQLx offline cache: se versiona en git (regenerar con: make sqlx-prepare)
+
+# Colección Bruno (local)
+api/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# SO
+.DS_Store
+Thumbs.db
+__MACOSX/
