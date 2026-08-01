@@ -1,2 +1,3 @@
-// Modelos de request/response y filas de BD.
-// Agregar módulos aquí conforme crezca el dominio de Panas.
+pub mod amistad;
+pub mod chat;
+pub mod usuario;

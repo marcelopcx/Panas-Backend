@@ -7,11 +7,35 @@ pub struct AppConfig {
     pub jwt_expiration_hours: i64,
     pub host: String,
     pub port: u16,
+    pub cloudinary: CloudinaryConfig,
+    pub default_avatar_url: String,
+}
+
+#[derive(Clone)]
+pub struct CloudinaryConfig {
+    pub cloud_name: String,
+    pub upload_preset: String,
+    pub folder: String,
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
         dotenvy::dotenv().ok();
+
+        let cloudinary = CloudinaryConfig {
+            cloud_name: env::var("CLOUDINARY_CLOUD_NAME")
+                .unwrap_or_else(|_| "mpc-uru".to_string()),
+            upload_preset: env::var("CLOUDINARY_UPLOAD_PRESET")
+                .unwrap_or_else(|_| "n3n6sbhv".to_string()),
+            folder: env::var("CLOUDINARY_FOLDER").unwrap_or_else(|_| "panas".to_string()),
+        };
+
+        let default_avatar_url = env::var("DEFAULT_AVATAR_URL").unwrap_or_else(|_| {
+            format!(
+                "https://res.cloudinary.com/{}/image/upload/{}/avatars/default.png",
+                cloudinary.cloud_name, cloudinary.folder
+            )
+        });
 
         Self {
             database_url: env::var("DATABASE_URL").expect("falta DATABASE_URL en .env"),
@@ -25,6 +49,8 @@ impl AppConfig {
                 .expect("falta PORT en .env")
                 .parse::<u16>()
                 .expect("PORT debe ser un número (ej: 8080)"),
+            cloudinary,
+            default_avatar_url,
         }
     }
 }

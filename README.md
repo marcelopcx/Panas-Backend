@@ -1,89 +1,91 @@
 # Panas (Backend)
 
-API REST del proyecto **Panas**, desarrollado para el curso de **Desarrollo de Aplicaciones Móviles** en la **Universidad Rafael Urdaneta (URU)**.
+API REST + WebSocket del proyecto **Panas** (URU — Desarrollo de Aplicaciones Móviles).
 
-Este repositorio contiene la estructura base del backend, alineada con **Nook's Cookbook** y **Game World**, lista para agregar el modelo de datos y la lógica de negocio de Panas.
+Stack: **Rust** · **Actix Web** · **PostgreSQL / SQLx** · **JWT** · **Cloudinary** · **actix-ws**
 
-Stack:
-
-- **Rust** con **[Actix Web](https://actix.rs/)**
-- **PostgreSQL** con **[SQLx](https://github.com/launchbadge/sqlx)**
-- Autenticación **JWT** (Bearer) y contraseñas con **bcrypt** (infraestructura preparada)
-
-El cliente móvil está en el repositorio del frontend: **[Panas — Frontend](https://github.com/marcelopcx/Panas-Frontend)** (React Native + Expo).
+Frontend: [Panas — Frontend](https://github.com/marcelopcx/Panas-Frontend)
 
 ---
 
-## Guía de inicialización
-
-### Prerrequisitos
-
-1. **[Rust](https://www.rust-lang.org/tools/install)** (toolchain *stable*).
-2. **[Docker](https://www.docker.com/)** y **Docker Compose**.
-
-### Pasos
-
-1. **Entrá al directorio del backend:**
-   ```bash
-   cd backend
-   ```
-
-2. **Dale permisos de ejecución a los scripts** *(solo la primera vez)*:
-   ```bash
-   chmod +x scripts/*.sh
-   ```
-
-3. **Inicializá el entorno** (`.env`, Docker, esquema):
-   ```bash
-   make setup
-   ```
-   Este comando realiza automáticamente:
-   * Crea `.env` desde `.env.example` si no existe.
-   * Levanta PostgreSQL con Docker Compose.
-   * Aplica el esquema `panas`.
-
-4. **Revisá las variables de entorno** en `.env` si hace falta:
-   ```env
-   DATABASE_URL=postgres://panas:secret123@127.0.0.1:5432/panas
-   JWT_SECRET=un_secreto_largo_minimo_32_caracteres_cambiar_en_produccion
-   JWT_EXPIRATION_HOURS=24
-   HOST=0.0.0.0
-   PORT=8080
-   ```
-
-5. **Iniciá el servidor:**
-   ```bash
-   cargo run
-   ```
-
-6. **Comprobá el health check:**
-   ```bash
-   curl http://127.0.0.1:8080/health
-   ```
-
-### Alternativa sin Make
+## Arranque
 
 ```bash
-./scripts/setup.sh
+chmod +x scripts/*.sh
+make setup          # .env + Docker Postgres + esquema
 cargo run
+curl http://127.0.0.1:8080/health
 ```
+
+Variables en `.env` (ver `.env.example`): `DATABASE_URL`, `JWT_*`, `CLOUDINARY_*`, `DEFAULT_AVATAR_URL`.
 
 ---
 
-## Arquitectura de carpetas
+## API
 
-- `src/main.rs` — Punto de entrada: pool de conexiones, configuración y arranque de **HttpServer**.
-- `src/lib.rs` — Módulos públicos del crate.
-- `src/config/` — Carga de variables de entorno (`AppConfig`).
-- `src/db/` — Creación del pool de PostgreSQL (`search_path` → `panas`).
-- `src/auth/` — Extractores `AuthenticatedUser` y `OptionalAuthenticatedUser` (JWT).
-- `src/handlers/` — Controladores HTTP (por ahora solo `health`).
-- `src/services/` — Lógica de negocio (utilidades JWT en `auth`).
-- `src/models/` — Structs de request/response y filas de BD *(listo para completar)*.
-- `src/routes/` — Registro de servicios Actix (`configure`).
-- `src/error/` — Errores de API unificados (`ApiError`).
-- `db/` — Esquema SQL (`panas.sql`) y datos semilla (`seed_data.sql`).
-- `scripts/` — `setup.sh`, `migrate-db.sh` y `reset-db.sh`.
-- `api/` — Colección [Bruno](https://www.usebruno.com/) para probar endpoints.
-- `docker-compose.yml` — PostgreSQL 16 en contenedor.
-- `build.rs` — Carga `.env` al compilar; activa **SQLx offline** si existe `.sqlx/`.
+### Auth / perfil (CRUD)
+
+| Método | Ruta | Auth | Descripción |
+|--------|------|------|-------------|
+| POST | `/auth/register` | — | Registro (`username`, `email`, `password`, opc. `nombre`, `apellido`, `bio`, `url_avatar`) |
+| POST | `/auth/login` | — | Login → `{ token, user }` |
+| GET | `/auth/me` | Bearer | Perfil completo |
+| PATCH | `/auth/me` | Bearer | Actualizar perfil |
+| DELETE | `/auth/me` | Bearer | Eliminar cuenta |
+| POST | `/auth/me/avatar` | Bearer | Multipart `file` → sube a Cloudinary y guarda `url_avatar` |
+| GET | `/usuarios` | Bearer | Buscar usuarios (`?q=&page=&limit=`) |
+| GET | `/usuarios/{id}` | — | Perfil público |
+
+### Amistades (swipe)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/amistades` | Enviar solicitud `{ "id_usuario": N }` |
+| GET | `/amistades/pendientes` | Solicitudes recibidas (para swipe) |
+| POST | `/amistades/{id}/aceptar` | **Swipe derecha** → acepta y crea chat |
+| POST | `/amistades/{id}/rechazar` | **Swipe izquierda** → rechaza |
+| POST | `/amistades/{id}/decidir` | `{ "accion": "aceptar" \| "rechazar" }` |
+| GET | `/amistades` | Amigos aceptados (incluye `id_chat`) |
+
+### Chats / mensajes (persistencia)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/chats` | Lista de chats |
+| POST | `/chats` | Abrir chat con amigo `{ "id_usuario": N }` |
+| GET | `/chats/{id}/mensajes` | Historial (`?page=&limit=`) |
+| POST | `/chats/{id}/mensajes` | Enviar texto/imagen `{ "contenido"?, "url_imagen"? }` |
+| POST | `/chats/{id}/imagen` | Multipart `file` → sube imagen, persiste mensaje y emite por WS |
+
+### WebSocket (mensajes en vivo)
+
+```
+ws://HOST:8080/ws/chats/{id_chat}?token=<JWT>
+```
+
+También acepta header `Authorization: Bearer <JWT>`.
+
+**Cliente → servidor**
+```json
+{ "type": "enviar", "contenido": "hola", "url_imagen": null }
+{ "type": "ping" }
+```
+
+**Servidor → cliente**
+```json
+{ "type": "mensaje", "mensaje": { "id_mensaje": 1, "id_chat": 1, "id_remitente": 2, "contenido": "hola", "url_imagen": null, "tipo": "texto", "fecha_envio": "..." } }
+{ "type": "pong" }
+{ "type": "error", "error": "..." }
+```
+
+Los mensajes enviados por REST o WS se **persisten** en PostgreSQL y se **retransmiten** a los participantes conectados al mismo chat.
+
+---
+
+## Arquitectura
+
+- `src/handlers/` — HTTP / WS
+- `src/services/` — negocio (`auth`, `amistad`, `chat`, `cloudinary`) + `ChatHub` (broadcast WS)
+- `src/models/` — DTOs
+- `src/auth/` — extractor JWT
+- `db/panas.sql` — esquema

@@ -1,7 +1,10 @@
 use actix_web::{http::StatusCode, HttpResponse, ResponseError};
 use serde::Serialize;
 
+use crate::services::amistad::AmistadError;
 use crate::services::auth::AuthError;
+use crate::services::chat::ChatError;
+use crate::services::cloudinary::CloudinaryError;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -54,9 +57,39 @@ impl From<AuthError> for ApiError {
             AuthError::NotFound => ApiError::NoEncontrado,
             AuthError::Conflict => ApiError::UsuarioYaExiste,
             AuthError::Forbidden => ApiError::Prohibido,
+            AuthError::InvalidRequest(m) => ApiError::SolicitudInvalida(m),
             AuthError::Database(e) => ApiError::ErrorDelServidor(e.to_string()),
             AuthError::PasswordHash(e) => ApiError::ErrorDelServidor(e.to_string()),
             AuthError::Token(e) => ApiError::ErrorDelServidor(e.to_string()),
+        }
+    }
+}
+
+impl From<CloudinaryError> for ApiError {
+    fn from(err: CloudinaryError) -> Self {
+        ApiError::ErrorDelServidor(err.to_string())
+    }
+}
+
+impl From<AmistadError> for ApiError {
+    fn from(err: AmistadError) -> Self {
+        match err {
+            AmistadError::NotFound => ApiError::NoEncontrado,
+            AmistadError::Forbidden => ApiError::Prohibido,
+            AmistadError::Conflict(m) => ApiError::SolicitudInvalida(m),
+            AmistadError::InvalidRequest(m) => ApiError::SolicitudInvalida(m),
+            AmistadError::Database(e) => ApiError::ErrorDelServidor(e.to_string()),
+        }
+    }
+}
+
+impl From<ChatError> for ApiError {
+    fn from(err: ChatError) -> Self {
+        match err {
+            ChatError::NotFound => ApiError::NoEncontrado,
+            ChatError::Forbidden => ApiError::Prohibido,
+            ChatError::InvalidRequest(m) => ApiError::SolicitudInvalida(m),
+            ChatError::Database(e) => ApiError::ErrorDelServidor(e.to_string()),
         }
     }
 }

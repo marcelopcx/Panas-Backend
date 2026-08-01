@@ -32,6 +32,9 @@ else
   echo "→ Esquema aplicado."
 fi
 
+echo "→ Aplicando migraciones ligeras..."
+"$ROOT/scripts/migrate-db.sh"
+
 echo "→ Cargando datos semilla (db/seed_data.sql)..."
 docker compose exec -T db psql -U panas -d panas < db/seed_data.sql || true
 
