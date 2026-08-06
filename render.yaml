@@ -1,0 +1,37 @@
+# Render Blueprint — Panas Backend
+# Repo: https://github.com/marcelopcx/Panas-Backend
+#
+# 1. En Render: New → Blueprint → conectar este repo
+# 2. Crear una PostgreSQL (New → PostgreSQL) y pegar la Internal/External
+#    Database URL en DATABASE_URL del servicio web
+# 3. Aplicar el esquema una vez:
+#      psql "$DATABASE_URL" -f db/panas.sql
+#    (o desde el dashboard de Postgres con el SQL de db/panas.sql)
+
+services:
+  - type: web
+    name: panas-api
+    runtime: rust
+    plan: free
+    buildCommand: cargo build --release
+    startCommand: ./target/release/backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRATION_HOURS
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "8080"
+      - key: CLOUDINARY_CLOUD_NAME
+        value: mpc-uru
+      - key: CLOUDINARY_UPLOAD_PRESET
+        value: n3n6sbhv
+      - key: CLOUDINARY_FOLDER
+        value: panas
+      - key: DEFAULT_AVATAR_URL
+        value: https://res.cloudinary.com/mpc-uru/image/upload/panas/avatars/default.png

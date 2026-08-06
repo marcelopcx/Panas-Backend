@@ -10,13 +10,53 @@ Frontend: [Panas — Frontend](https://github.com/marcelopcx/Panas-Frontend)
 
 ## Arranque
 
+### Local (recomendado para probar)
+
+1. Abrí **Docker Desktop** y esperá a que esté listo.
+2. En el backend:
+
 ```bash
-chmod +x scripts/*.sh
-make setup          # .env + Docker + esquema completo
-# o si ya tenías la BD:
-make migrate-db
-cargo run
+cd backend
+make dev-up      # Postgres + esquema + te muestra la IP
+cargo run        # API en :8080
 ```
+
+3. En el frontend, creá `.env`:
+
+```env
+EXPO_PUBLIC_API_URL=http://TU_IP_LOCAL:8080
+```
+
+(Usá la IP que imprimió `make dev-up`, no `localhost`, para que el teléfono alcance la API.)
+
+4. `npx expo start -c` y escaneá el QR.
+
+Comprobá:
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+### Render (nube, gratis)
+
+1. Subí `Dockerfile` + `render.yaml` al repo (ya están en el proyecto).
+2. En [render.com](https://render.com): **New → Blueprint** → conectá `Panas-Backend`.
+3. Creá también un **PostgreSQL** en Render y pegá su `DATABASE_URL` en el servicio web.
+4. Aplicá el esquema una vez (Shell de Render o `psql`):
+
+```bash
+psql "$DATABASE_URL" -f db/panas.sql
+```
+
+5. En el frontend:
+
+```env
+EXPO_PUBLIC_API_URL=https://panas-api.onrender.com
+```
+
+(ajustá al hostname real que te dé Render).
+
+Variables ya definidas en el Blueprint: JWT, Cloudinary (`mpc-uru` / folder `panas`), `HOST=0.0.0.0`.
 
 ---
 

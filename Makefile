@@ -1,4 +1,4 @@
-.PHONY: setup reset-db migrate-db run check db-logs sqlx-prepare
+.PHONY: setup reset-db migrate-db run check db-logs sqlx-prepare dev-up
 
 # Regenera .sqlx/ contra Postgres local (requiere Docker + esquema aplicado).
 sqlx-prepare:
@@ -13,6 +13,10 @@ migrate-db:
 
 reset-db:
 	@./scripts/reset-db.sh
+
+dev-up:
+	@chmod +x scripts/*.sh
+	@./scripts/dev-up.sh
 
 run:
 	@cargo run

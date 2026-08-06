@@ -8,10 +8,10 @@ services:
       POSTGRES_PASSWORD: secret123
       POSTGRES_DB: panas
     ports:
-      - "5432:5432"
+      # 5433 para no chocar con Game World (5432)
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      # Se ejecuta solo la primera vez que se crea el volumen (BD vacía).
+      - panas_postgres_data:/var/lib/postgresql/data
       - ./db/panas.sql:/docker-entrypoint-initdb.d/01-panas.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U panas -d panas"]
@@ -20,4 +20,4 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
+  panas_postgres_data:
