@@ -107,6 +107,7 @@ pub async fn subir_imagen_chat(
         &EnviarMensajeRequest {
             contenido: None,
             url_imagen: Some(secure_url.clone()),
+            text: None,
         },
     )
     .await?;

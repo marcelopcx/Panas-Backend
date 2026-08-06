@@ -1,6 +1,6 @@
 # Panas (Backend)
 
-API REST + WebSocket del proyecto **Panas** (URU — Desarrollo de Aplicaciones Móviles).
+API REST + WebSocket alineada al frontend Expo (auth, Meet, Bandeja, Chats, Perfil, notificaciones).
 
 Stack: **Rust** · **Actix Web** · **PostgreSQL / SQLx** · **JWT** · **Cloudinary** · **actix-ws**
 
@@ -12,80 +12,130 @@ Frontend: [Panas — Frontend](https://github.com/marcelopcx/Panas-Frontend)
 
 ```bash
 chmod +x scripts/*.sh
-make setup          # .env + Docker Postgres + esquema
+make setup          # .env + Docker + esquema completo
+# o si ya tenías la BD:
+make migrate-db
 cargo run
-curl http://127.0.0.1:8080/health
 ```
-
-Variables en `.env` (ver `.env.example`): `DATABASE_URL`, `JWT_*`, `CLOUDINARY_*`, `DEFAULT_AVATAR_URL`.
 
 ---
 
-## API
+## Mapa UI → API
 
-### Auth / perfil (CRUD)
+| Pantalla front | Endpoints |
+|----------------|-----------|
+| Login | `POST /auth/login` `{ email, password }` |
+| Registro | `POST /auth/register` `{ email, password, full_name, url_avatar? }` |
+| Forgot password | `POST /auth/forgot-password` `{ email }` |
+| Perfil | `GET/PATCH/DELETE /auth/me`, `POST /auth/me/avatar` |
+| Privacidad | `PATCH /auth/me` `{ privacidad: "publico"\|"privado"\|"solo_amigos" }` |
+| Meet (deck) | `GET /descubrir` · swipe izq `POST /descubrir/pasar` · swipe der `POST /amistades` |
+| Bandeja | `GET /amistades/pendientes` · `POST /amistades/{id}/aceptar\|rechazar` |
+| Chats | `GET /chats` (incluye `name`, `last_message`, `unread`, `updated_at`) |
+| Mensajes | `GET/POST /chats/{id}/mensajes` · `POST /chats/{id}/imagen` · `POST /chats/{id}/leer` |
+| Campana | `GET /notificaciones` · `PATCH .../leer` · `POST .../leer-todas` · `DELETE` |
+| Chat en vivo | `ws://HOST:8080/ws/chats/{id}?token=JWT` |
 
-| Método | Ruta | Auth | Descripción |
-|--------|------|------|-------------|
-| POST | `/auth/register` | — | Registro (`username`, `email`, `password`, opc. `nombre`, `apellido`, `bio`, `url_avatar`) |
-| POST | `/auth/login` | — | Login → `{ token, user }` |
-| GET | `/auth/me` | Bearer | Perfil completo |
-| PATCH | `/auth/me` | Bearer | Actualizar perfil |
-| DELETE | `/auth/me` | Bearer | Eliminar cuenta |
-| POST | `/auth/me/avatar` | Bearer | Multipart `file` → sube a Cloudinary y guarda `url_avatar` |
-| GET | `/usuarios` | Bearer | Buscar usuarios (`?q=&page=&limit=`) |
-| GET | `/usuarios/{id}` | — | Perfil público |
-
-### Amistades (swipe)
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/amistades` | Enviar solicitud `{ "id_usuario": N }` |
-| GET | `/amistades/pendientes` | Solicitudes recibidas (para swipe) |
-| POST | `/amistades/{id}/aceptar` | **Swipe derecha** → acepta y crea chat |
-| POST | `/amistades/{id}/rechazar` | **Swipe izquierda** → rechaza |
-| POST | `/amistades/{id}/decidir` | `{ "accion": "aceptar" \| "rechazar" }` |
-| GET | `/amistades` | Amigos aceptados (incluye `id_chat`) |
-
-### Chats / mensajes (persistencia)
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/chats` | Lista de chats |
-| POST | `/chats` | Abrir chat con amigo `{ "id_usuario": N }` |
-| GET | `/chats/{id}/mensajes` | Historial (`?page=&limit=`) |
-| POST | `/chats/{id}/mensajes` | Enviar texto/imagen `{ "contenido"?, "url_imagen"? }` |
-| POST | `/chats/{id}/imagen` | Multipart `file` → sube imagen, persiste mensaje y emite por WS |
-
-### WebSocket (mensajes en vivo)
-
-```
-ws://HOST:8080/ws/chats/{id_chat}?token=<JWT>
-```
-
-También acepta header `Authorization: Bearer <JWT>`.
-
-**Cliente → servidor**
-```json
-{ "type": "enviar", "contenido": "hola", "url_imagen": null }
-{ "type": "ping" }
-```
-
-**Servidor → cliente**
-```json
-{ "type": "mensaje", "mensaje": { "id_mensaje": 1, "id_chat": 1, "id_remitente": 2, "contenido": "hola", "url_imagen": null, "tipo": "texto", "fecha_envio": "..." } }
-{ "type": "pong" }
-{ "type": "error", "error": "..." }
-```
-
-Los mensajes enviados por REST o WS se **persisten** en PostgreSQL y se **retransmiten** a los participantes conectados al mismo chat.
+Auth: header `Authorization: Bearer <token>` (WS también acepta `?token=`).
 
 ---
 
-## Arquitectura
+## Auth
 
-- `src/handlers/` — HTTP / WS
-- `src/services/` — negocio (`auth`, `amistad`, `chat`, `cloudinary`) + `ChatHub` (broadcast WS)
-- `src/models/` — DTOs
-- `src/auth/` — extractor JWT
-- `db/panas.sql` — esquema
+```http
+POST /auth/register
+{ "email": "a@b.com", "password": "secreto12", "full_name": "Jhon Doe", "url_avatar": null }
+
+POST /auth/login
+{ "email": "a@b.com", "password": "secreto12" }
+→ { "token": "...", "user": { "id_usuario", "username", "email", "url_avatar" } }
+
+POST /auth/forgot-password
+{ "email": "a@b.com" }
+
+GET    /auth/me
+PATCH  /auth/me   { "full_name"?, "privacidad"?, "bio"?, "url_avatar"?, ... }
+DELETE /auth/me
+POST   /auth/me/avatar   multipart field `file`
+```
+
+Password mínimo **8** caracteres (como valida el front).
+
+---
+
+## Descubrir / Meet
+
+```http
+GET  /descubrir?limit=20
+→ [{ "id_usuario", "name", "url_avatar", "bio", "username" }]
+
+POST /descubrir/pasar
+{ "id_usuario": 5 }          # swipe izquierda
+
+POST /amistades
+{ "id_usuario": 5 }          # swipe derecha → solicitud
+```
+
+Solo aparecen perfiles `privacidad = publico`, sin amistad/solicitud pendiente y no pasados antes.
+
+---
+
+## Amistades (Bandeja)
+
+```http
+GET  /amistades/pendientes
+→ [{ "id_solicitud", "name", "message", "url_avatar", ... }]
+
+POST /amistades/{id}/aceptar     # swipe derecha en bandeja → crea chat
+POST /amistades/{id}/rechazar    # swipe izquierda
+POST /amistades/{id}/decidir     { "accion": "aceptar" | "rechazar" }
+GET  /amistades                  # amigos + id_chat
+```
+
+---
+
+## Chats / mensajes
+
+```http
+GET  /chats
+→ [{ "id_chat", "name", "url_avatar", "last_message", "updated_at", "unread", "otro_usuario" }]
+
+POST /chats                  { "id_usuario": N }
+GET  /chats/{id}/mensajes    ?page=&limit=     # también marca leído
+POST /chats/{id}/mensajes    { "text": "hola" } o { "contenido": "hola" } o { "url_imagen": "..." }
+POST /chats/{id}/imagen      multipart `file`
+POST /chats/{id}/leer
+```
+
+WebSocket:
+
+```
+ws://HOST:8080/ws/chats/{id}?token=<JWT>
+→ { "type": "enviar", "text": "hola" }
+← { "type": "mensaje", "mensaje": { ... } }
+```
+
+---
+
+## Notificaciones
+
+```http
+GET    /notificaciones?solo_no_leidas=true
+→ { "items": [...], "unread": 3 }
+
+PATCH  /notificaciones/{id}/leer
+POST   /notificaciones/leer-todas
+DELETE /notificaciones/{id}
+```
+
+Se crean automáticamente al recibir solicitud, al aceptar amistad y al recibir mensaje.
+
+---
+
+## Privacidad
+
+| Valor API | UI front |
+|-----------|----------|
+| `publico` | Público (aparece en Meet) |
+| `privado` | Privado (solo el dueño ve el perfil) |
+| `solo_amigos` | Solo amigos |

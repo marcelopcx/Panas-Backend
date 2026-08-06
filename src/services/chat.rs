@@ -5,9 +5,9 @@ use sqlx::PgPool;
 use tokio::sync::broadcast;
 
 use crate::models::chat::{
-    Chat, ChatListItem, ChatParticipante, EnviarMensajeRequest, Mensaje, MensajeResumen,
+    Chat, ChatListItem, ChatParticipante, EnviarMensajeRequest, Mensaje,
 };
-use crate::services::amistad;
+use crate::services::{amistad, notificacion};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChatError {
@@ -24,7 +24,6 @@ pub enum ChatError {
     Database(#[from] sqlx::Error),
 }
 
-/// Hub en memoria: un canal broadcast por chat para WebSockets.
 #[derive(Default)]
 pub struct ChatHub {
     inner: Mutex<HashMap<i32, broadcast::Sender<String>>>,
@@ -74,7 +73,7 @@ pub async fn obtener_o_crear(
         return Ok(chat);
     }
 
-    let chat = sqlx::query_as::<_, Chat>(
+    sqlx::query_as::<_, Chat>(
         r#"
         INSERT INTO chats (id_usuario_menor, id_usuario_mayor)
         VALUES ($1, $2)
@@ -84,9 +83,8 @@ pub async fn obtener_o_crear(
     .bind(menor)
     .bind(mayor)
     .fetch_one(pool)
-    .await?;
-
-    Ok(chat)
+    .await
+    .map_err(ChatError::from)
 }
 
 pub async fn listar_chats(
@@ -99,15 +97,14 @@ pub async fn listar_chats(
         fecha_creacion: chrono::DateTime<chrono::Utc>,
         id_usuario: i32,
         username: String,
+        name: String,
         url_avatar: Option<String>,
         nombre: Option<String>,
         apellido: Option<String>,
-        ultimo_id: Option<i32>,
-        ultimo_remitente: Option<i32>,
         ultimo_contenido: Option<String>,
-        ultimo_url_imagen: Option<String>,
         ultimo_tipo: Option<String>,
         ultimo_fecha: Option<chrono::DateTime<chrono::Utc>>,
+        unread: i64,
     }
 
     let rows = sqlx::query_as::<_, Row>(
@@ -117,22 +114,31 @@ pub async fn listar_chats(
             c.fecha_creacion,
             u.id_usuario,
             u.username,
+            COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS name,
             u.url_avatar,
             u.nombre,
             u.apellido,
-            m.id_mensaje AS ultimo_id,
-            m.id_remitente AS ultimo_remitente,
             m.contenido AS ultimo_contenido,
-            m.url_imagen AS ultimo_url_imagen,
             m.tipo AS ultimo_tipo,
-            m.fecha_envio AS ultimo_fecha
+            m.fecha_envio AS ultimo_fecha,
+            (
+              SELECT COUNT(*)::bigint
+              FROM mensajes mx
+              WHERE mx.id_chat = c.id_chat
+                AND mx.id_remitente <> $1
+                AND mx.fecha_envio > COALESCE(
+                  CASE WHEN c.id_usuario_menor = $1 THEN c.ultima_lectura_menor
+                       ELSE c.ultima_lectura_mayor END,
+                  '1970-01-01'::timestamptz
+                )
+            ) AS unread
         FROM chats c
         JOIN usuarios u ON u.id_usuario = CASE
             WHEN c.id_usuario_menor = $1 THEN c.id_usuario_mayor
             ELSE c.id_usuario_menor
         END
         LEFT JOIN LATERAL (
-            SELECT id_mensaje, id_remitente, contenido, url_imagen, tipo, fecha_envio
+            SELECT contenido, tipo, fecha_envio
             FROM mensajes
             WHERE id_chat = c.id_chat
             ORDER BY fecha_envio DESC
@@ -148,28 +154,33 @@ pub async fn listar_chats(
 
     Ok(rows
         .into_iter()
-        .map(|r| ChatListItem {
-            id_chat: r.id_chat,
-            otro_usuario: ChatParticipante {
-                id_usuario: r.id_usuario,
-                username: r.username,
-                url_avatar: r.url_avatar,
-                nombre: r.nombre,
-                apellido: r.apellido,
-            },
-            ultimo_mensaje: match (r.ultimo_id, r.ultimo_remitente, r.ultimo_tipo, r.ultimo_fecha)
-            {
-                (Some(id), Some(rem), Some(tipo), Some(fecha)) => Some(MensajeResumen {
-                    id_mensaje: id,
-                    id_remitente: rem,
-                    contenido: r.ultimo_contenido,
-                    url_imagen: r.ultimo_url_imagen,
-                    tipo,
-                    fecha_envio: fecha,
-                }),
-                _ => None,
-            },
-            fecha_creacion: r.fecha_creacion,
+        .map(|r| {
+            let last_message = match r.ultimo_tipo.as_deref() {
+                Some("imagen") => "📷 Imagen".to_string(),
+                _ => r
+                    .ultimo_contenido
+                    .clone()
+                    .unwrap_or_else(|| "Sin mensajes aún".into()),
+            };
+            let updated_at = r.ultimo_fecha.unwrap_or(r.fecha_creacion);
+
+            ChatListItem {
+                id_chat: r.id_chat,
+                name: r.name.clone(),
+                url_avatar: r.url_avatar.clone(),
+                last_message,
+                updated_at,
+                unread: r.unread,
+                otro_usuario: ChatParticipante {
+                    id_usuario: r.id_usuario,
+                    username: r.username,
+                    name: r.name,
+                    url_avatar: r.url_avatar,
+                    nombre: r.nombre,
+                    apellido: r.apellido,
+                },
+                fecha_creacion: r.fecha_creacion,
+            }
         })
         .collect())
 }
@@ -198,6 +209,32 @@ pub async fn obtener_chat_si_participa(
     Ok(chat)
 }
 
+pub async fn marcar_leido(
+    pool: &PgPool,
+    id_chat: i32,
+    id_usuario: i32,
+) -> Result<(), ChatError> {
+    let chat = obtener_chat_si_participa(pool, id_chat, id_usuario).await?;
+
+    if chat.id_usuario_menor == id_usuario {
+        sqlx::query(
+            "UPDATE chats SET ultima_lectura_menor = NOW() WHERE id_chat = $1",
+        )
+        .bind(id_chat)
+        .execute(pool)
+        .await?;
+    } else {
+        sqlx::query(
+            "UPDATE chats SET ultima_lectura_mayor = NOW() WHERE id_chat = $1",
+        )
+        .bind(id_chat)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
 pub async fn listar_mensajes(
     pool: &PgPool,
     id_chat: i32,
@@ -210,7 +247,10 @@ pub async fn listar_mensajes(
     let limit = limit.clamp(1, 100);
     let offset = (page - 1) * limit;
 
-    let mensajes = sqlx::query_as::<_, Mensaje>(
+    // Al abrir el historial, marcar como leído
+    let _ = marcar_leido(pool, id_chat, id_usuario).await;
+
+    sqlx::query_as::<_, Mensaje>(
         r#"
         SELECT id_mensaje, id_chat, id_remitente, contenido, url_imagen, tipo, fecha_envio
         FROM mensajes
@@ -223,9 +263,8 @@ pub async fn listar_mensajes(
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
-    .await?;
-
-    Ok(mensajes)
+    .await
+    .map_err(ChatError::from)
 }
 
 pub async fn enviar_mensaje(
@@ -252,6 +291,7 @@ pub async fn enviar_mensaje(
     let contenido = body
         .contenido
         .as_deref()
+        .or(body.text.as_deref())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
@@ -265,7 +305,7 @@ pub async fn enviar_mensaje(
 
     if contenido.is_none() && url_imagen.is_none() {
         return Err(ChatError::InvalidRequest(
-            "debes enviar contenido o url_imagen".into(),
+            "debes enviar contenido/text o url_imagen".into(),
         ));
     }
 
@@ -289,6 +329,37 @@ pub async fn enviar_mensaje(
     .bind(tipo)
     .fetch_one(pool)
     .await?;
+
+    // Actualizar lectura del remitente
+    let _ = marcar_leido(pool, id_chat, id_remitente).await;
+
+    let nombre_remitente: String = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(NULLIF(btrim(nombre), ''), username)
+        FROM usuarios WHERE id_usuario = $1
+        "#,
+    )
+    .bind(id_remitente)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|_| "Alguien".into());
+
+    let preview = if tipo == "imagen" {
+        format!("Nuevo mensaje de {nombre_remitente}: 📷 Imagen")
+    } else {
+        let texto = contenido.as_deref().unwrap_or("");
+        let corto: String = texto.chars().take(60).collect();
+        format!("Nuevo mensaje de {nombre_remitente}: {corto}")
+    };
+
+    let _ = notificacion::crear(
+        pool,
+        otro,
+        "mensaje",
+        &preview,
+        Some(id_chat),
+    )
+    .await;
 
     Ok(mensaje)
 }

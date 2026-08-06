@@ -5,6 +5,7 @@ use crate::services::amistad::AmistadError;
 use crate::services::auth::AuthError;
 use crate::services::chat::ChatError;
 use crate::services::cloudinary::CloudinaryError;
+use crate::services::notificacion::NotificacionError;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -90,6 +91,16 @@ impl From<ChatError> for ApiError {
             ChatError::Forbidden => ApiError::Prohibido,
             ChatError::InvalidRequest(m) => ApiError::SolicitudInvalida(m),
             ChatError::Database(e) => ApiError::ErrorDelServidor(e.to_string()),
+        }
+    }
+}
+
+impl From<NotificacionError> for ApiError {
+    fn from(err: NotificacionError) -> Self {
+        match err {
+            NotificacionError::NotFound => ApiError::NoEncontrado,
+            NotificacionError::Forbidden => ApiError::Prohibido,
+            NotificacionError::Database(e) => ApiError::ErrorDelServidor(e.to_string()),
         }
     }
 }

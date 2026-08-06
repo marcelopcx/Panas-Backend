@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::models::amistad::{
     AmigoItem, CrearSolicitudRequest, SolicitudAmistad, SolicitudPendienteItem,
 };
-use crate::services::chat;
+use crate::services::{chat, notificacion};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AmistadError {
@@ -47,7 +47,6 @@ pub async fn enviar_solicitud(
         return Err(AmistadError::NotFound);
     }
 
-    // ¿Ya son amigos o hay solicitud en cualquier dirección?
     let existente = sqlx::query_as::<_, SolicitudAmistad>(
         r#"
         SELECT id_solicitud, id_remitente, id_destinatario, estado, fecha_creacion, fecha_respuesta
@@ -63,7 +62,7 @@ pub async fn enviar_solicitud(
     .fetch_optional(pool)
     .await?;
 
-    if let Some(s) = existente {
+    let solicitud = if let Some(s) = existente {
         match s.estado.as_str() {
             "aceptada" => {
                 return Err(AmistadError::Conflict("ya son amigos".into()));
@@ -74,8 +73,7 @@ pub async fn enviar_solicitud(
                 ));
             }
             "rechazada" => {
-                // Reabrir como nueva solicitud del remitente actual
-                let renovada = sqlx::query_as::<_, SolicitudAmistad>(
+                sqlx::query_as::<_, SolicitudAmistad>(
                     r#"
                     UPDATE solicitudes_amistad
                     SET id_remitente = $2,
@@ -92,38 +90,58 @@ pub async fn enviar_solicitud(
                 .bind(id_remitente)
                 .bind(id_destinatario)
                 .fetch_one(pool)
-                .await?;
-                return Ok(renovada);
+                .await?
             }
-            _ => {}
+            _ => {
+                return Err(AmistadError::Conflict("estado inválido".into()));
+            }
         }
-    }
+    } else {
+        sqlx::query_as::<_, SolicitudAmistad>(
+            r#"
+            INSERT INTO solicitudes_amistad (id_remitente, id_destinatario, estado)
+            VALUES ($1, $2, 'pendiente')
+            RETURNING id_solicitud, id_remitente, id_destinatario, estado,
+                      fecha_creacion, fecha_respuesta
+            "#,
+        )
+        .bind(id_remitente)
+        .bind(id_destinatario)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::Database(db) = &e {
+                if db.constraint().is_some() {
+                    return AmistadError::Conflict("ya existe una solicitud".into());
+                }
+            }
+            AmistadError::Database(e)
+        })?
+    };
 
-    let solicitud = sqlx::query_as::<_, SolicitudAmistad>(
+    let nombre_remitente: String = sqlx::query_scalar(
         r#"
-        INSERT INTO solicitudes_amistad (id_remitente, id_destinatario, estado)
-        VALUES ($1, $2, 'pendiente')
-        RETURNING id_solicitud, id_remitente, id_destinatario, estado,
-                  fecha_creacion, fecha_respuesta
+        SELECT COALESCE(NULLIF(btrim(nombre), ''), username)
+        FROM usuarios WHERE id_usuario = $1
         "#,
     )
     .bind(id_remitente)
-    .bind(id_destinatario)
     .fetch_one(pool)
     .await
-    .map_err(|e| {
-        if let sqlx::Error::Database(db) = &e {
-            if db.constraint().is_some() {
-                return AmistadError::Conflict("ya existe una solicitud".into());
-            }
-        }
-        AmistadError::Database(e)
-    })?;
+    .unwrap_or_else(|_| "Alguien".into());
+
+    let _ = notificacion::crear(
+        pool,
+        id_destinatario,
+        "solicitud_amistad",
+        &format!("Nueva solicitud de amistad de {nombre_remitente}"),
+        Some(solicitud.id_solicitud),
+    )
+    .await;
 
     Ok(solicitud)
 }
 
-/// Solicitudes pendientes recibidas (para swipe izquierda/derecha).
 pub async fn listar_pendientes(
     pool: &PgPool,
     id_destinatario: i32,
@@ -133,11 +151,13 @@ pub async fn listar_pendientes(
         SELECT
             s.id_solicitud,
             s.id_remitente,
+            COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS name,
             u.username,
             u.url_avatar,
             u.nombre,
             u.apellido,
             u.bio,
+            'Te ha enviado una solicitud...' AS message,
             s.fecha_creacion
         FROM solicitudes_amistad s
         JOIN usuarios u ON u.id_usuario = s.id_remitente
@@ -180,6 +200,26 @@ pub async fn aceptar(
     )
     .await
     .map_err(|e| AmistadError::InvalidRequest(e.to_string()))?;
+
+    let nombre_aceptador: String = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(NULLIF(btrim(nombre), ''), username)
+        FROM usuarios WHERE id_usuario = $1
+        "#,
+    )
+    .bind(id_destinatario)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|_| "Alguien".into());
+
+    let _ = notificacion::crear(
+        pool,
+        solicitud.id_remitente,
+        "solicitud_aceptada",
+        &format!("{nombre_aceptador} aceptó tu solicitud de amistad"),
+        Some(chat.id_chat),
+    )
+    .await;
 
     Ok((actualizada, chat.id_chat))
 }
@@ -245,6 +285,7 @@ pub async fn listar_amigos(
         r#"
         SELECT
             u.id_usuario,
+            COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS name,
             u.username,
             u.url_avatar,
             u.nombre,
@@ -261,7 +302,7 @@ pub async fn listar_amigos(
             AND c.id_usuario_mayor = GREATEST($1, u.id_usuario)
         WHERE s.estado = 'aceptada'
           AND (s.id_remitente = $1 OR s.id_destinatario = $1)
-        ORDER BY LOWER(u.username) ASC
+        ORDER BY LOWER(COALESCE(u.nombre, u.username)) ASC
         "#,
     )
     .bind(id_usuario)
@@ -271,11 +312,7 @@ pub async fn listar_amigos(
     Ok(rows)
 }
 
-pub async fn son_amigos(
-    pool: &PgPool,
-    a: i32,
-    b: i32,
-) -> Result<bool, AmistadError> {
+pub async fn son_amigos(pool: &PgPool, a: i32, b: i32) -> Result<bool, AmistadError> {
     let existe: Option<i32> = sqlx::query_scalar(
         r#"
         SELECT id_solicitud

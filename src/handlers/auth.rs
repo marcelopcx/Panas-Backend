@@ -1,10 +1,13 @@
 use actix_web::{delete, get, patch, post, web, HttpResponse};
 use sqlx::PgPool;
 
-use crate::auth::AuthenticatedUser;
+use crate::auth::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::config::AppConfig;
 use crate::error::ApiError;
-use crate::models::usuario::{LoginRequest, RegisterRequest, UpdateMeRequest, UsuarioListQuery};
+use crate::models::usuario::{
+    DescubrirQuery, ForgotPasswordRequest, LoginRequest, PasarDescubrirRequest, RegisterRequest,
+    UpdateMeRequest, UsuarioListQuery,
+};
 use crate::services::auth;
 
 #[post("/auth/register")]
@@ -32,6 +35,18 @@ pub async fn login(
     .await?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "token": token, "user": user })))
+}
+
+#[post("/auth/forgot-password")]
+pub async fn forgot_password(
+    pool: web::Data<PgPool>,
+    body: web::Json<ForgotPasswordRequest>,
+) -> Result<HttpResponse, ApiError> {
+    auth::forgot_password(pool.get_ref(), &body).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "ok": true,
+        "message": "Si el correo existe, recibirás instrucciones para restablecer la contraseña."
+    })))
 }
 
 #[get("/auth/me")]
@@ -76,8 +91,35 @@ pub async fn listar_usuarios(
 #[get("/usuarios/{id}")]
 pub async fn get_usuario(
     pool: web::Data<PgPool>,
+    viewer: OptionalAuthenticatedUser,
     path: web::Path<i32>,
 ) -> Result<HttpResponse, ApiError> {
-    let perfil = auth::get_public_profile(pool.get_ref(), path.into_inner()).await?;
+    let perfil =
+        auth::get_public_profile(pool.get_ref(), viewer.user_id, path.into_inner()).await?;
     Ok(HttpResponse::Ok().json(perfil))
+}
+
+/// Meet: candidatos para swipe (derecha = solicitud, izquierda = pasar).
+#[get("/descubrir")]
+pub async fn listar_descubrir(
+    pool: web::Data<PgPool>,
+    user: AuthenticatedUser,
+    query: web::Query<DescubrirQuery>,
+) -> Result<HttpResponse, ApiError> {
+    let items = auth::listar_descubrir(pool.get_ref(), user.user_id, &query).await?;
+    Ok(HttpResponse::Ok().json(items))
+}
+
+/// Meet swipe izquierda: pasar al siguiente sin enviar solicitud.
+#[post("/descubrir/pasar")]
+pub async fn pasar_descubrir(
+    pool: web::Data<PgPool>,
+    user: AuthenticatedUser,
+    body: web::Json<PasarDescubrirRequest>,
+) -> Result<HttpResponse, ApiError> {
+    auth::pasar_descubrir(pool.get_ref(), user.user_id, &body).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "ok": true,
+        "accion": "pasar"
+    })))
 }

@@ -11,7 +11,6 @@ pub struct AbrirChatRequest {
     pub id_usuario: i32,
 }
 
-/// Lista chats del usuario autenticado.
 #[get("/chats")]
 pub async fn listar_chats(
     pool: web::Data<PgPool>,
@@ -21,7 +20,6 @@ pub async fn listar_chats(
     Ok(HttpResponse::Ok().json(chats))
 }
 
-/// Abre (o reutiliza) un chat 1:1 con un amigo.
 #[post("/chats")]
 pub async fn abrir_chat(
     pool: web::Data<PgPool>,
@@ -33,7 +31,6 @@ pub async fn abrir_chat(
     Ok(HttpResponse::Ok().json(chat))
 }
 
-/// Historial paginado de mensajes (más recientes primero).
 #[get("/chats/{id}/mensajes")]
 pub async fn listar_mensajes(
     pool: web::Data<PgPool>,
@@ -49,7 +46,6 @@ pub async fn listar_mensajes(
     Ok(HttpResponse::Ok().json(mensajes))
 }
 
-/// Envía un mensaje por REST (también se emite por WebSocket si hay suscriptores).
 #[post("/chats/{id}/mensajes")]
 pub async fn enviar_mensaje(
     pool: web::Data<PgPool>,
@@ -69,4 +65,15 @@ pub async fn enviar_mensaje(
     }
 
     Ok(HttpResponse::Created().json(mensaje))
+}
+
+/// Marca el chat como leído (pone unread en 0).
+#[post("/chats/{id}/leer")]
+pub async fn marcar_chat_leido(
+    pool: web::Data<PgPool>,
+    user: AuthenticatedUser,
+    path: web::Path<i32>,
+) -> Result<HttpResponse, ApiError> {
+    chat::marcar_leido(pool.get_ref(), path.into_inner(), user.user_id).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "ok": true })))
 }

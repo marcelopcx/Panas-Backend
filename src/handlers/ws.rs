@@ -106,14 +106,16 @@ pub async fn ws_chat(
                         Ok(WsClientMessage::Enviar {
                             contenido,
                             url_imagen,
+                            text,
                         }) => {
                             match chat::enviar_mensaje(
                                 pool_clone.get_ref(),
                                 id_chat,
                                 user_id,
                                 &EnviarMensajeRequest {
-                                    contenido,
+                                    contenido: contenido.or(text),
                                     url_imagen,
+                                    text: None,
                                 },
                             )
                             .await
