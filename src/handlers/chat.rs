@@ -3,7 +3,7 @@ use sqlx::PgPool;
 
 use crate::auth::AuthenticatedUser;
 use crate::error::ApiError;
-use crate::models::chat::{EnviarMensajeRequest, MensajesQuery, WsEvent};
+use crate::models::chat::{EnviarMensajeRequest, MensajesQuery};
 use crate::services::chat::{self, ChatHub};
 
 #[derive(serde::Deserialize)]
@@ -55,14 +55,10 @@ pub async fn enviar_mensaje(
     body: web::Json<EnviarMensajeRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let id_chat = path.into_inner();
-    let mensaje =
+    let (mensaje, chat) =
         chat::enviar_mensaje(pool.get_ref(), id_chat, user.user_id, &body).await?;
 
-    if let Ok(payload) = serde_json::to_string(&WsEvent::Mensaje {
-        mensaje: mensaje.clone(),
-    }) {
-        hub.publish(id_chat, payload);
-    }
+    hub.emit_mensaje(&chat, &mensaje);
 
     Ok(HttpResponse::Created().json(mensaje))
 }

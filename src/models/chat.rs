@@ -72,6 +72,13 @@ pub struct MensajesQuery {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsEvent {
     Mensaje { mensaje: Mensaje },
+    /// Actualización para la lista de chats del usuario.
+    ChatUpdate {
+        id_chat: i32,
+        last_message: String,
+        updated_at: DateTime<Utc>,
+        id_remitente: i32,
+    },
     Error { error: String },
     Ping,
     Pong,

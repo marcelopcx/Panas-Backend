@@ -120,12 +120,8 @@ pub async fn ws_chat(
                             )
                             .await
                             {
-                                Ok(mensaje) => {
-                                    if let Ok(payload) =
-                                        serde_json::to_string(&WsEvent::Mensaje { mensaje })
-                                    {
-                                        hub_clone.publish(id_chat, payload);
-                                    }
+                                Ok((mensaje, chat_row)) => {
+                                    hub_clone.emit_mensaje(&chat_row, &mensaje);
                                 }
                                 Err(e) => {
                                     let _ = session
@@ -149,6 +145,91 @@ pub async fn ws_chat(
                                 )
                                 .await;
                         }
+                    }
+                }
+                actix_ws::AggregatedMessage::Ping(bytes) => {
+                    let _ = session.pong(&bytes).await;
+                }
+                actix_ws::AggregatedMessage::Close(_) => break,
+                _ => {}
+            }
+        }
+
+        let _ = session.close(None).await;
+    });
+
+    Ok(response)
+}
+
+/// WebSocket de usuario: actualizaciones de lista de chats.
+/// `GET /ws/usuario?token=<JWT>`
+pub async fn ws_usuario(
+    req: HttpRequest,
+    stream: web::Payload,
+    hub: web::Data<ChatHub>,
+    config: web::Data<AppConfig>,
+) -> Result<HttpResponse, ApiError> {
+    let token = req
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .or_else(|| {
+            req.uri().query().and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    match (parts.next(), parts.next()) {
+                        (Some("token"), Some(value)) => Some(value),
+                        _ => None,
+                    }
+                })
+            })
+        })
+        .ok_or(ApiError::NoAutorizado)?;
+
+    let user_id = auth::user_id_from_token(token, &config.jwt_secret)
+        .map_err(|_| ApiError::NoAutorizado)?;
+
+    let (response, mut session, msg_stream) =
+        actix_ws::handle(&req, stream).map_err(|e| {
+            ApiError::ErrorDelServidor(format!("websocket: {e}"))
+        })?;
+
+    let mut msg_stream = msg_stream
+        .aggregate_continuations()
+        .max_continuation_size(2_usize.pow(20));
+
+    let mut rx = hub.subscribe_user(user_id);
+
+    actix_web::rt::spawn(async move {
+        let mut session_out = session.clone();
+        actix_web::rt::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(payload) => {
+                        if session_out.text(payload).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        while let Some(Ok(msg)) = msg_stream.next().await {
+            match msg {
+                actix_ws::AggregatedMessage::Text(text) => {
+                    match serde_json::from_str::<WsClientMessage>(&text) {
+                        Ok(WsClientMessage::Ping) => {
+                            let _ = session
+                                .text(
+                                    serde_json::to_string(&WsEvent::Pong)
+                                        .unwrap_or_else(|_| r#"{"type":"pong"}"#.into()),
+                                )
+                                .await;
+                        }
+                        _ => {}
                     }
                 }
                 actix_ws::AggregatedMessage::Ping(bytes) => {

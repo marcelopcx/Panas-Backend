@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use tokio::sync::broadcast;
 
 use crate::models::chat::{
-    Chat, ChatListItem, ChatParticipante, EnviarMensajeRequest, Mensaje,
+    Chat, ChatListItem, ChatParticipante, EnviarMensajeRequest, Mensaje, WsEvent,
 };
 use crate::services::{amistad, notificacion};
 
@@ -26,7 +26,8 @@ pub enum ChatError {
 
 #[derive(Default)]
 pub struct ChatHub {
-    inner: Mutex<HashMap<i32, broadcast::Sender<String>>>,
+    chats: Mutex<HashMap<i32, broadcast::Sender<String>>>,
+    users: Mutex<HashMap<i32, broadcast::Sender<String>>>,
 }
 
 impl ChatHub {
@@ -35,18 +36,61 @@ impl ChatHub {
     }
 
     pub fn subscribe(&self, id_chat: i32) -> broadcast::Receiver<String> {
-        let mut map = self.inner.lock().expect("chat hub lock");
+        let mut map = self.chats.lock().expect("chat hub lock");
         map.entry(id_chat)
             .or_insert_with(|| broadcast::channel(256).0)
             .subscribe()
     }
 
     pub fn publish(&self, id_chat: i32, payload: String) {
-        let mut map = self.inner.lock().expect("chat hub lock");
+        let mut map = self.chats.lock().expect("chat hub lock");
         let sender = map
             .entry(id_chat)
             .or_insert_with(|| broadcast::channel(256).0);
         let _ = sender.send(payload);
+    }
+
+    pub fn subscribe_user(&self, id_usuario: i32) -> broadcast::Receiver<String> {
+        let mut map = self.users.lock().expect("user hub lock");
+        map.entry(id_usuario)
+            .or_insert_with(|| broadcast::channel(256).0)
+            .subscribe()
+    }
+
+    pub fn publish_user(&self, id_usuario: i32, payload: String) {
+        let mut map = self.users.lock().expect("user hub lock");
+        let sender = map
+            .entry(id_usuario)
+            .or_insert_with(|| broadcast::channel(256).0);
+        let _ = sender.send(payload);
+    }
+
+    /// Emite el mensaje a la sala del chat y un `chat_update` a ambos participantes.
+    pub fn emit_mensaje(&self, chat: &Chat, mensaje: &Mensaje) {
+        if let Ok(payload) = serde_json::to_string(&WsEvent::Mensaje {
+            mensaje: mensaje.clone(),
+        }) {
+            self.publish(chat.id_chat, payload);
+        }
+
+        let last_message = if mensaje.tipo == "imagen" {
+            "📷 Imagen".to_string()
+        } else {
+            mensaje
+                .contenido
+                .clone()
+                .unwrap_or_else(|| "Nuevo mensaje".into())
+        };
+
+        if let Ok(payload) = serde_json::to_string(&WsEvent::ChatUpdate {
+            id_chat: chat.id_chat,
+            last_message,
+            updated_at: mensaje.fecha_envio,
+            id_remitente: mensaje.id_remitente,
+        }) {
+            self.publish_user(chat.id_usuario_menor, payload.clone());
+            self.publish_user(chat.id_usuario_mayor, payload);
+        }
     }
 }
 
@@ -272,7 +316,7 @@ pub async fn enviar_mensaje(
     id_chat: i32,
     id_remitente: i32,
     body: &EnviarMensajeRequest,
-) -> Result<Mensaje, ChatError> {
+) -> Result<(Mensaje, Chat), ChatError> {
     let chat = obtener_chat_si_participa(pool, id_chat, id_remitente).await?;
 
     let otro = if chat.id_usuario_menor == id_remitente {
@@ -361,7 +405,7 @@ pub async fn enviar_mensaje(
     )
     .await;
 
-    Ok(mensaje)
+    Ok((mensaje, chat))
 }
 
 pub async fn abrir_chat_con_amigo(

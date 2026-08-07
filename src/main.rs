@@ -46,6 +46,7 @@ async fn main() -> std::io::Result<()> {
 
     println!("Servidor listo en http://{}:{}", printed_host, port);
     println!("WebSocket chat: ws://{}:{}/ws/chats/{{id}}?token=<JWT>", printed_host, port);
+    println!("WebSocket usuario: ws://{}:{}/ws/usuario?token=<JWT>", printed_host, port);
 
     server.run().await
 }

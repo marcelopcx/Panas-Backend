@@ -100,7 +100,7 @@ pub async fn subir_imagen_chat(
     let secure_url =
         cloudinary::subir_imagen(&config.cloudinary, bytes, filename, Some(&folder)).await?;
 
-    let mensaje = chat::enviar_mensaje(
+    let (mensaje, chat) = chat::enviar_mensaje(
         pool.get_ref(),
         id_chat,
         user.user_id,
@@ -112,11 +112,7 @@ pub async fn subir_imagen_chat(
     )
     .await?;
 
-    if let Ok(payload_ws) = serde_json::to_string(&crate::models::chat::WsEvent::Mensaje {
-        mensaje: mensaje.clone(),
-    }) {
-        hub.publish(id_chat, payload_ws);
-    }
+    hub.emit_mensaje(&chat, &mensaje);
 
     Ok(HttpResponse::Created().json(serde_json::json!({
         "secure_url": secure_url,

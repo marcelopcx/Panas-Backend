@@ -40,5 +40,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(handlers::marcar_todas_leidas)
         .service(handlers::eliminar_notificacion)
         // WebSocket
-        .route("/ws/chats/{id}", web::get().to(handlers::ws::ws_chat));
+        .route("/ws/chats/{id}", web::get().to(handlers::ws::ws_chat))
+        .route("/ws/usuario", web::get().to(handlers::ws::ws_usuario));
 }
