@@ -54,9 +54,8 @@ psql "$DATABASE_URL" -f db/panas.sql
 EXPO_PUBLIC_API_URL=https://panas-api.onrender.com
 ```
 
-(ajustá al hostname real que te dé Render).
-
-Variables ya definidas en el Blueprint: JWT, Cloudinary (`mpc-uru` / folder `panas`), `HOST=0.0.0.0`.
+Producción actual: **https://panas-api.onrender.com** (`GET /health`).
+Base de datos: Postgres en la nube (Neon project `panas`, esquema `panas`). Podés sustituir `DATABASE_URL` por una URI de Supabase cuando tengas el proyecto.
 
 ---
 
