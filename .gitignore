@@ -23,3 +23,5 @@ api/
 .DS_Store
 Thumbs.db
 __MACOSX/
+
+.env.deploy
