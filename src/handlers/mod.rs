@@ -11,8 +11,8 @@ pub use amistad::{
     rechazar_amistad,
 };
 pub use auth::{
-    delete_me, forgot_password, get_me, get_usuario, listar_descubrir, listar_usuarios, login,
-    pasar_descubrir, patch_me, register,
+    delete_me, eliminar_push_token, forgot_password, get_me, get_usuario, listar_descubrir,
+    listar_usuarios, login, pasar_descubrir, patch_me, register, registrar_push_token,
 };
 pub use chat::{abrir_chat, enviar_mensaje, listar_chats, listar_mensajes, marcar_chat_leido};
 pub use health::health_check;

@@ -5,10 +5,10 @@ use crate::auth::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::config::AppConfig;
 use crate::error::ApiError;
 use crate::models::usuario::{
-    DescubrirQuery, ForgotPasswordRequest, LoginRequest, PasarDescubrirRequest, RegisterRequest,
-    UpdateMeRequest, UsuarioListQuery,
+    DescubrirQuery, ForgotPasswordRequest, LoginRequest, PasarDescubrirRequest, PushTokenRequest,
+    RegisterRequest, UpdateMeRequest, UsuarioListQuery,
 };
-use crate::services::auth;
+use crate::services::{auth, expo_push};
 
 #[post("/auth/register")]
 pub async fn register(
@@ -74,6 +74,33 @@ pub async fn delete_me(
     user: AuthenticatedUser,
 ) -> Result<HttpResponse, ApiError> {
     auth::delete_account(pool.get_ref(), user.user_id).await?;
+    Ok(HttpResponse::NoContent().finish())
+}
+
+#[post("/auth/me/push-token")]
+pub async fn registrar_push_token(
+    pool: web::Data<PgPool>,
+    user: AuthenticatedUser,
+    body: web::Json<PushTokenRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let token = body.token.trim();
+    if token.is_empty() {
+        return Err(ApiError::SolicitudInvalida("token vacío".into()));
+    }
+    expo_push::guardar_token(pool.get_ref(), user.user_id, token)
+        .await
+        .map_err(|e| ApiError::ErrorDelServidor(e.to_string()))?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "ok": true })))
+}
+
+#[delete("/auth/me/push-token")]
+pub async fn eliminar_push_token(
+    pool: web::Data<PgPool>,
+    user: AuthenticatedUser,
+) -> Result<HttpResponse, ApiError> {
+    expo_push::eliminar_token(pool.get_ref(), user.user_id)
+        .await
+        .map_err(|e| ApiError::ErrorDelServidor(e.to_string()))?;
     Ok(HttpResponse::NoContent().finish())
 }
 

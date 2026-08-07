@@ -2,19 +2,16 @@
 # Repo: https://github.com/marcelopcx/Panas-Backend
 #
 # 1. En Render: New → Blueprint → conectar este repo
-# 2. Crear una PostgreSQL (New → PostgreSQL) y pegar la Internal/External
-#    Database URL en DATABASE_URL del servicio web
-# 3. Aplicar el esquema una vez:
-#      psql "$DATABASE_URL" -f db/panas.sql
-#    (o desde el dashboard de Postgres con el SQL de db/panas.sql)
+# 2. DATABASE_URL = connection string de Supabase (SSL)
+# 3. Aplicar esquema una vez: psql "$DATABASE_URL" -f db/panas.sql
 
 services:
   - type: web
     name: panas-api
-    runtime: rust
+    runtime: docker
     plan: free
-    buildCommand: cargo build --release
-    startCommand: ./target/release/backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -25,8 +22,7 @@ services:
         value: "24"
       - key: HOST
         value: 0.0.0.0
-      - key: PORT
-        value: "8080"
+      # Render inyecta PORT automáticamente; no fijar 8080
       - key: CLOUDINARY_CLOUD_NAME
         value: mpc-uru
       - key: CLOUDINARY_UPLOAD_PRESET
@@ -34,4 +30,4 @@ services:
       - key: CLOUDINARY_FOLDER
         value: panas
       - key: DEFAULT_AVATAR_URL
-        value: https://res.cloudinary.com/mpc-uru/image/upload/panas/avatars/default.png
+        value: https://res.cloudinary.com/mpc-uru/image/upload/panas/avatars/default.jpg

@@ -68,6 +68,7 @@ Variables ya definidas en el Blueprint: JWT, Cloudinary (`mpc-uru` / folder `pan
 | Registro | `POST /auth/register` `{ email, password, full_name, url_avatar? }` |
 | Forgot password | `POST /auth/forgot-password` `{ email }` |
 | Perfil | `GET/PATCH/DELETE /auth/me`, `POST /auth/me/avatar` |
+| Push | `POST/DELETE /auth/me/push-token` (Expo Push) |
 | Privacidad | `PATCH /auth/me` `{ privacidad: "publico"\|"privado"\|"solo_amigos" }` |
 | Meet (deck) | `GET /descubrir` · swipe izq `POST /descubrir/pasar` · swipe der `POST /amistades` |
 | Bandeja | `GET /amistades/pendientes` · `POST /amistades/{id}/aceptar\|rechazar` |
@@ -97,6 +98,8 @@ GET    /auth/me
 PATCH  /auth/me   { "full_name"?, "privacidad"?, "bio"?, "url_avatar"?, ... }
 DELETE /auth/me
 POST   /auth/me/avatar   multipart field `file`
+POST   /auth/me/push-token   { "token": "ExponentPushToken[...]" }
+DELETE /auth/me/push-token
 ```
 
 Password mínimo **8** caracteres (como valida el front).

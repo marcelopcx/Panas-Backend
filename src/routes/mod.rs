@@ -12,6 +12,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(handlers::patch_me)
         .service(handlers::delete_me)
         .service(handlers::subir_avatar_usuario)
+        .service(handlers::registrar_push_token)
+        .service(handlers::eliminar_push_token)
         .service(handlers::listar_usuarios)
         .service(handlers::get_usuario)
         // Meet / descubrir (swipe)

@@ -40,6 +40,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::from(hub.clone()))
             .configure(routes::configure)
     })
+    // Un solo worker evita EADDRINUSE en algunos entornos macOS al compartir el socket.
+    .workers(1)
     .bind((host.as_str(), port))?;
 
     println!("Servidor listo en http://{}:{}", printed_host, port);

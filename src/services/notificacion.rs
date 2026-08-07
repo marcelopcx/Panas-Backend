@@ -1,6 +1,7 @@
 use sqlx::PgPool;
 
 use crate::models::notificacion::{Notificacion, NotificacionesQuery};
+use crate::services::expo_push;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotificacionError {
@@ -34,6 +35,8 @@ pub async fn crear(
     .bind(id_referencia)
     .fetch_one(pool)
     .await?;
+
+    expo_push::notificar_usuario(pool, id_usuario, tipo, mensaje, id_referencia).await;
 
     Ok(row)
 }

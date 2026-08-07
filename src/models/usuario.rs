@@ -88,6 +88,11 @@ pub struct ForgotPasswordRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PushTokenRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UpdateMeRequest {
     pub username: Option<String>,
     pub email: Option<String>,

@@ -130,3 +130,12 @@ CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_fecha
 
 CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_leida
     ON notificaciones (id_usuario, leida);
+
+-- -----------------------------------------------------------------------------
+-- 7. Push tokens (Expo Push Notifications)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS push_tokens (
+    id_usuario INTEGER PRIMARY KEY REFERENCES usuarios (id_usuario) ON DELETE CASCADE,
+    expo_push_token TEXT NOT NULL,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
