@@ -6,6 +6,7 @@
 .env
 .env.*
 !.env.example
+!.env.deploy.example
 
 # SQLx offline cache: se versiona en git (regenerar con: make sqlx-prepare)
 

@@ -1,61 +1,136 @@
 # Panas (Backend)
 
-API REST + WebSocket alineada al frontend Expo (auth, Meet, Bandeja, Chats, Perfil, notificaciones).
+¡Bienvenido a **Panas**! API REST + WebSocket de la app de descubrimiento de amistades y chat. El desarrollo forma parte de una asignación práctica para el curso de **Desarrollo de Aplicaciones Móviles** en la **Universidad Rafael Urdaneta (URU)**.
 
-Stack: **Rust** · **Actix Web** · **PostgreSQL / SQLx** · **JWT** · **Cloudinary** · **actix-ws**
+Arquitectura desacoplada:
 
-Frontend: [Panas — Frontend](https://github.com/marcelopcx/Panas-Frontend)
+* **Rust** con **[Actix Web](https://actix.rs/)** como servidor HTTP.
+* Persistencia en **PostgreSQL** mediante **[SQLx](https://github.com/launchbadge/sqlx)**.
+* Autenticación **JWT** (Bearer) y contraseñas con **bcrypt**.
+* Imágenes con **Cloudinary** (avatares y fotos de chat).
+* Chat en vivo con **actix-ws**.
+* Push con **Expo Push Notifications**.
+
+Cliente móvil: **[Panas — Frontend](https://github.com/marcelopcx/Panas-Frontend)** (React Native + Expo).
+
+Referencia completa de endpoints: **[API.md](./API.md)**.
 
 ---
 
-## Arranque
+## Guía de inicialización del proyecto
 
-### Local (recomendado para probar)
+### Prerrequisitos
 
-1. Abrí **Docker Desktop** y esperá a que esté listo.
-2. En el backend:
+1. **[Rust](https://www.rust-lang.org/tools/install)** (toolchain *stable*).
+2. **[Docker](https://www.docker.com/)** y **Docker Compose** (PostgreSQL local).
+3. *(Opcional)* `psql` para aplicar el esquema a una BD remota.
+
+### Pasos (local)
+
+1. **Navegá al directorio del backend:**
+
+   ```bash
+   cd backend
+   ```
+
+   *(Si clonaste solo este repo: `cd Panas-Backend`.)*
+
+2. **Dale permisos a los scripts** *(solo la primera vez)*:
+
+   ```bash
+   chmod +x scripts/*.sh
+   ```
+
+3. **Inicializá el entorno** (`.env`, Docker en puerto **5433**, esquema):
+
+   ```bash
+   make dev-up
+   ```
+
+   Este comando:
+   * Crea `.env` desde `.env.example` si no existe.
+   * Levanta PostgreSQL (`panas_db`, puerto host **5433** para no chocar con otros proyectos del curso).
+   * Aplica `db/panas.sql` (esquema `panas`).
+   * Muestra tu IP local sugerida para el frontend.
+
+4. **Revisá `.env`** si hace falta:
+
+   ```env
+   DATABASE_URL=postgres://panas:secret123@127.0.0.1:5433/panas
+   JWT_SECRET=un_secreto_largo_minimo_32_caracteres_cambiar_en_produccion
+   JWT_EXPIRATION_HOURS=24
+   HOST=0.0.0.0
+   PORT=8080
+   CLOUDINARY_CLOUD_NAME=mpc-uru
+   CLOUDINARY_UPLOAD_PRESET=n3n6sbhv
+   CLOUDINARY_FOLDER=panas
+   DEFAULT_AVATAR_URL=https://res.cloudinary.com/mpc-uru/image/upload/panas/avatars/default.jpg
+   ```
+
+   *No subas `.env` a git.*
+
+5. **Iniciá la API:**
+
+   ```bash
+   cargo run
+   ```
+
+   Escucha en **`0.0.0.0:8080`** (accesible por IP local desde el teléfono).
+
+6. **Health check:**
+
+   ```bash
+   curl http://127.0.0.1:8080/health
+   ```
+
+### Alternativa con Make setup
 
 ```bash
-cd backend
-make dev-up      # Postgres + esquema + te muestra la IP
-cargo run        # API en :8080
+make setup
+cargo run
 ```
 
-3. En el frontend, creá `.env`:
+---
 
-```env
-EXPO_PUBLIC_API_URL=http://TU_IP_LOCAL:8080
-```
+## Despliegue (producción)
 
-(Usá la IP que imprimió `make dev-up`, no `localhost`, para que el teléfono alcance la API.)
+Servicio en Render (Docker):
 
-4. `npx expo start -c` y escaneá el QR.
+* **URL:** https://panas-api.onrender.com  
+* **Health:** `GET /health`  
+* Repo: este mismo (`Dockerfile` + `render.yaml`)
 
-Comprobá:
+Variables importantes en el servicio: `DATABASE_URL` (Postgres con SSL), `JWT_SECRET`, Cloudinary, `HOST=0.0.0.0`. Render inyecta `PORT`.
 
-```bash
-curl http://127.0.0.1:8080/health
-```
-
-### Render (nube, gratis)
-
-1. Subí `Dockerfile` + `render.yaml` al repo (ya están en el proyecto).
-2. En [render.com](https://render.com): **New → Blueprint** → conectá `Panas-Backend`.
-3. Creá también un **PostgreSQL** en Render y pegá su `DATABASE_URL` en el servicio web.
-4. Aplicá el esquema una vez (Shell de Render o `psql`):
+Aplicar esquema una vez sobre la BD remota:
 
 ```bash
 psql "$DATABASE_URL" -f db/panas.sql
+# o
+./scripts/apply-schema.sh
 ```
 
-5. En el frontend:
+*Nota:* en el plan free de Render el servicio puede dormirse; la primera request tarda ~30–60 s.
 
-```env
-EXPO_PUBLIC_API_URL=https://panas-api.onrender.com
-```
+---
 
-Producción actual: **https://panas-api.onrender.com** (`GET /health`).
-Base de datos: Postgres en la nube (Neon project `panas`, esquema `panas`). Podés sustituir `DATABASE_URL` por una URI de Supabase cuando tengas el proyecto.
+## Arquitectura de carpetas
+
+* `src/main.rs` — Entrada: pool, config, CORS, **HttpServer**.
+* `src/lib.rs` — Módulos del crate.
+* `src/config/` — Variables de entorno (`AppConfig`, Cloudinary, avatar por defecto).
+* `src/db/` — Pool PostgreSQL (`search_path` → `panas`).
+* `src/auth/` — Extractores JWT (`AuthenticatedUser`).
+* `src/handlers/` — Controladores HTTP (auth, amistad, chat, notificaciones, imágenes, WS).
+* `src/services/` — Lógica de negocio + cliente Expo Push + Cloudinary.
+* `src/models/` — Request/response y filas SQLx.
+* `src/routes/` — Registro de rutas Actix.
+* `src/error/` — `ApiError` unificado.
+* `db/panas.sql` — Esquema completo.
+* `scripts/` — `dev-up.sh`, `migrate-db.sh`, `apply-schema.sh`, deploy helpers.
+* `api/` — Colección [Bruno](https://www.usebruno.com/) (si está presente).
+* `Dockerfile` / `render.yaml` — Deploy en Render.
+* `docker-compose.yml` — Postgres 16 local (puerto **5433**).
 
 ---
 
@@ -63,121 +138,34 @@ Base de datos: Postgres en la nube (Neon project `panas`, esquema `panas`). Pod�
 
 | Pantalla front | Endpoints |
 |----------------|-----------|
-| Login | `POST /auth/login` `{ email, password }` |
-| Registro | `POST /auth/register` `{ email, password, full_name, url_avatar? }` |
-| Forgot password | `POST /auth/forgot-password` `{ email }` |
+| Login | `POST /auth/login` |
+| Registro | `POST /auth/register` (+ opcional `POST /auth/me/avatar`) |
+| Forgot password | `POST /auth/forgot-password` |
 | Perfil | `GET/PATCH/DELETE /auth/me`, `POST /auth/me/avatar` |
-| Push | `POST/DELETE /auth/me/push-token` (Expo Push) |
-| Privacidad | `PATCH /auth/me` `{ privacidad: "publico"\|"privado"\|"solo_amigos" }` |
-| Meet (deck) | `GET /descubrir` · swipe izq `POST /descubrir/pasar` · swipe der `POST /amistades` |
-| Bandeja | `GET /amistades/pendientes` · `POST /amistades/{id}/aceptar\|rechazar` |
-| Chats | `GET /chats` (incluye `name`, `last_message`, `unread`, `updated_at`) |
-| Mensajes | `GET/POST /chats/{id}/mensajes` · `POST /chats/{id}/imagen` · `POST /chats/{id}/leer` |
-| Campana | `GET /notificaciones` · `PATCH .../leer` · `POST .../leer-todas` · `DELETE` |
-| Chat en vivo | `ws://HOST:8080/ws/chats/{id}?token=JWT` |
+| Push | `POST/DELETE /auth/me/push-token` |
+| Meet | `GET /descubrir` · `POST /descubrir/pasar` · `POST /amistades` |
+| Bandeja | `GET /amistades/pendientes` · aceptar / rechazar |
+| Chats | `GET /chats` |
+| Mensajes | `GET/POST /chats/{id}/mensajes` · imagen · leer |
+| Campana | `GET /notificaciones` · leer · eliminar |
+| Chat en vivo | `WS /ws/chats/{id}?token=JWT` |
 
-Auth: header `Authorization: Bearer <token>` (WS también acepta `?token=`).
+Auth: header `Authorization: Bearer <token>`.
 
----
-
-## Auth
-
-```http
-POST /auth/register
-{ "email": "a@b.com", "password": "secreto12", "full_name": "Jhon Doe", "url_avatar": null }
-
-POST /auth/login
-{ "email": "a@b.com", "password": "secreto12" }
-→ { "token": "...", "user": { "id_usuario", "username", "email", "url_avatar" } }
-
-POST /auth/forgot-password
-{ "email": "a@b.com" }
-
-GET    /auth/me
-PATCH  /auth/me   { "full_name"?, "privacidad"?, "bio"?, "url_avatar"?, ... }
-DELETE /auth/me
-POST   /auth/me/avatar   multipart field `file`
-POST   /auth/me/push-token   { "token": "ExponentPushToken[...]" }
-DELETE /auth/me/push-token
-```
-
-Password mínimo **8** caracteres (como valida el front).
+Detalle de bodies y respuestas: **[API.md](./API.md)**.
 
 ---
 
-## Descubrir / Meet
+## Conexión con el Frontend (Expo)
 
-```http
-GET  /descubrir?limit=20
-→ [{ "id_usuario", "name", "url_avatar", "bio", "username" }]
+Repositorio: **[Panas-Frontend](https://github.com/marcelopcx/Panas-Frontend)**
 
-POST /descubrir/pasar
-{ "id_usuario": 5 }          # swipe izquierda
+```env
+# Local
+EXPO_PUBLIC_API_URL=http://TU_IP_LOCAL:8080
 
-POST /amistades
-{ "id_usuario": 5 }          # swipe derecha → solicitud
+# Producción
+EXPO_PUBLIC_API_URL=https://panas-api.onrender.com
 ```
 
-Solo aparecen perfiles `privacidad = publico`, sin amistad/solicitud pendiente y no pasados antes.
-
----
-
-## Amistades (Bandeja)
-
-```http
-GET  /amistades/pendientes
-→ [{ "id_solicitud", "name", "message", "url_avatar", ... }]
-
-POST /amistades/{id}/aceptar     # swipe derecha en bandeja → crea chat
-POST /amistades/{id}/rechazar    # swipe izquierda
-POST /amistades/{id}/decidir     { "accion": "aceptar" | "rechazar" }
-GET  /amistades                  # amigos + id_chat
-```
-
----
-
-## Chats / mensajes
-
-```http
-GET  /chats
-→ [{ "id_chat", "name", "url_avatar", "last_message", "updated_at", "unread", "otro_usuario" }]
-
-POST /chats                  { "id_usuario": N }
-GET  /chats/{id}/mensajes    ?page=&limit=     # también marca leído
-POST /chats/{id}/mensajes    { "text": "hola" } o { "contenido": "hola" } o { "url_imagen": "..." }
-POST /chats/{id}/imagen      multipart `file`
-POST /chats/{id}/leer
-```
-
-WebSocket:
-
-```
-ws://HOST:8080/ws/chats/{id}?token=<JWT>
-→ { "type": "enviar", "text": "hola" }
-← { "type": "mensaje", "mensaje": { ... } }
-```
-
----
-
-## Notificaciones
-
-```http
-GET    /notificaciones?solo_no_leidas=true
-→ { "items": [...], "unread": 3 }
-
-PATCH  /notificaciones/{id}/leer
-POST   /notificaciones/leer-todas
-DELETE /notificaciones/{id}
-```
-
-Se crean automáticamente al recibir solicitud, al aceptar amistad y al recibir mensaje.
-
----
-
-## Privacidad
-
-| Valor API | UI front |
-|-----------|----------|
-| `publico` | Público (aparece en Meet) |
-| `privado` | Privado (solo el dueño ve el perfil) |
-| `solo_amigos` | Solo amigos |
+*El backend escucha en el puerto **8080** por defecto (`PORT` en `.env`). Debe coincidir con el frontend.*
