@@ -68,9 +68,14 @@ pub async fn enviar_solicitud(
                 return Err(AmistadError::Conflict("ya son amigos".into()));
             }
             "pendiente" => {
-                return Err(AmistadError::Conflict(
-                    "ya existe una solicitud pendiente".into(),
-                ));
+                // Misma dirección: idempotente (evita error al reintentar / doble swipe).
+                if s.id_remitente == id_remitente {
+                    return Ok(s);
+                }
+                // Dirección inversa: ya te enviaron solicitud → aceptarla automáticamente.
+                let (aceptada, _id_chat) =
+                    aceptar(pool, id_remitente, s.id_solicitud).await?;
+                return Ok(aceptada);
             }
             "rechazada" => {
                 sqlx::query_as::<_, SolicitudAmistad>(
